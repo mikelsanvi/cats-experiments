@@ -6,121 +6,133 @@ package free.pipelines
 
 import cats.free.Free
 import cats.free.Free._
-import cats.{Functor, Id, ~>}
-import free.pipelines.ExtractionDsl.{Filter, Mapping, Source}
+import cats.{Id, ~>}
+import free.pipelines.ExtractionDsl._
 
 /**
   * Created by mikelsanvicente on 4/27/17.
   */
-abstract class PipelineContext[C[_]] {
+abstract class PipelineContext[Container[_]] {
 
-//  type My[Container[_]] = ExtractionDsl[Container, _]
+  def interpreter: Interpreter[Container]
 
-  def extract[T <: Product](dataset: C[T]): Free[ExtractionDsl, Container[C, T]] = {
-    val source = Source[C, T](dataset)
-    Free.liftF(source)
-  }
-
-  def eval[T](program: Free[ExtractionDsl, Container[C, T]]): Container[C, T] =  {
-    program.foldMap(interpreter)
-  }
-
-  def interpreter: ExtractionDsl ~> Id =
-    new (ExtractionDsl ~> Id) {
-      def apply[A](fa: ExtractionDsl[A]): Id[A] = {
-        fa match {
-          case source: Source[C, _] =>
-            processSource(source).asInstanceOf[A]
-          case mapping: Mapping[C, _, _] =>
-            processMapping(mapping).asInstanceOf[A]
-          case filter: Filter[C, _] =>
-            processFilter(filter).asInstanceOf[A]
-        }
-      }
-    }
-
-  private[this] def processSource[T](s: Source[C, T]): Container[C, T] =
-    lift(source(s.dataset))
-
-  private[this] def processMapping[T, V](mapping: Mapping[C, T, V]): Container[C, V] ={
-    lift(map(mapping.extraction, mapping.f))
-  }
-  private[this] def processFilter[T](f: Filter[C, T]): Container[C, T] = {
-    lift(filter(f.extraction, f.predicate))
-  }
-
-  def lift[T](c: C[T]): Container[C, T]
-
-  def source[T](container: C[T]): C[T]
-  def map[T, V](container: C[T], f: T => V): C[V]
-  def filter[T](container: C[T], p: T => Boolean): C[T]
+  def extract[T <: Product](dataset: Container[T]): Free[ExtractionDsl, Container[T]] =
+    Free.liftF(Source[Container, T](dataset))
 
   object PipelineDsl {
-
-    implicit class ExtractionProgramOps[C[_], T](extractionProgram: Free[ExtractionDsl, Container[C, T]]) {
-
-      def filter(f: T => Boolean): Free[ExtractionDsl, Container[C, T]] =
+    implicit class ExtractionProgramOps[T](extractionProgram: Free[ExtractionDsl, Container[T]]) {
+      def filter(f: T => Boolean): Free[ExtractionDsl, Container[T]] =
         for {
           extr <- extractionProgram
-          res <- liftF(Filter(extr.container, f))
+          res <- liftF(Filter(extr, f))
         } yield (res)
 
-      def mapping[V](f: T => V): Free[ExtractionDsl, Container[C, V]] =
+      def mapping[V](f: T => V): Free[ExtractionDsl, Container[V]] =
         for {
           extr <- extractionProgram
-          res <- liftF(Mapping(extr.container, f))
+          res <- liftF(Mapping(extr, f))
         } yield (res)
+
+      def load(): Container[T] = interpreter.eval[T](extractionProgram)
     }
 
+    implicit class ContainerOps[A](container: Container[A]) {
+      def ++(other: Container[A]): Free[ExtractionDsl, Container[A]] = liftF(Union(container, other))
+
+      def --(other: Container[A]): Free[ExtractionDsl, Container[A]] = liftF(Substract(container, other))
+    }
   }
 }
 
-trait Container[C[_], A] {
-  def container: C[A]
-  def ++(other: Container[C, A]): Container[C, A]
-  def --(other: Container[C, A]): Container[C, A]
+trait Interpreter[Container[_]] {
+  def eval[T](program: Free[ExtractionDsl, Container[T]]): Container[T] =
+    program.foldMap(
+      new (ExtractionDsl ~> Id) {
+        def apply[A](fa: ExtractionDsl[A]): Id[A] = {
+          fa match {
+            case source: Source[Container, _] =>
+              processSource(source).asInstanceOf[A]
+            case mapping: Mapping[Container, _, _] =>
+              processMapping(mapping).asInstanceOf[A]
+            case filter: Filter[Container, _] =>
+              processFilter(filter).asInstanceOf[A]
+            case union: Union[Container, _] =>
+              processUnion(union).asInstanceOf[A]
+            case subsctract: Substract[Container, _] =>
+              processSubstract(subsctract).asInstanceOf[A]
+          }
+        }
+      }
+    )
+
+  private[this] def processSource[T](s: Source[Container, T]): Container[T] =
+    source(s.dataset)
+
+  private[this] def processMapping[T, V](mapping: Mapping[Container, T, V]): Container[V] =
+    map(mapping.extraction, mapping.f)
+
+  private[this] def processFilter[T](f: Filter[Container, T]): Container[T] =
+    filter(f.extraction, f.predicate)
+
+  private[this] def processUnion[T](u: Union[Container, T]): Container[T] =
+    union(u.extraction1, u.extraction2)
+
+  private[this] def processSubstract[T](s: Substract[Container, T]): Container[T] =
+    substract(s.extraction1, s.extraction2)
+
+
+  def source[T](container: Container[T]): Container[T]
+
+  def map[T, V](container: Container[T], f: T => V): Container[V]
+
+  def filter[T](container: Container[T], p: T => Boolean): Container[T]
+
+  def union[T](container1: Container[T], container2: Container[T]): Container[T]
+
+  def substract[T](container1: Container[T], container2: Container[T]): Container[T]
 }
 
 sealed abstract class ExtractionDsl[ContainerT]
 
 private object ExtractionDsl {
-  case class Source[C[_], T](dataset: C[T]) extends ExtractionDsl[Container[C, T]]
 
-  case class Mapping[C[_], T, V](extraction: C[T], f: T => V) extends ExtractionDsl[Container[C, V]]
+  case class Source[Container[_], T](dataset: Container[T]) extends ExtractionDsl[Container[T]]
 
-  case class Filter[C[_], T](extraction: C[T], predicate: T => Boolean) extends ExtractionDsl[Container[C, T]]
+  case class Mapping[Container[_], T, V](extraction: Container[T], f: T => V) extends ExtractionDsl[Container[V]]
+
+  case class Filter[Container[_], T](extraction: Container[T], predicate: T => Boolean) extends ExtractionDsl[Container[T]]
+
+  case class Union[Container[_], T](extraction1: Container[T], extraction2: Container[T]) extends ExtractionDsl[Container[T]]
+
+  case class Substract[Container[_], T](extraction1: Container[T], extraction2: Container[T]) extends ExtractionDsl[Container[T]]
+
 }
 
 class SeqPipelineContext extends PipelineContext[Seq] {
+  val interpreter: Interpreter[Seq] = new Interpreter[Seq] {
+    override def source[T](container: Seq[T]): Seq[T] = container
 
-  case class SeqContainer[A](container: Seq[A]) extends Container[Seq, A] {
-    override def ++(other: Container[Seq, A]): Container[Seq, A] = this.copy(
-      container = container ++ other.container
-    )
+    override def map[T, V](container: Seq[T], f: T => V): Seq[V] = container.map(f)
 
-    override def --(other: Container[Seq, A]): Container[Seq, A] = this.copy(
-      container = container diff other.container
-    )
+    override def filter[T](container: Seq[T], p: T => Boolean): Seq[T] = container.filter(p)
+
+    def union[T](container1: Seq[T], container2: Seq[T]): Seq[T] = container1 ++ container2
+
+    def substract[T](container1: Seq[T], container2: Seq[T]): Seq[T] = container1 diff container2
   }
-
-  override def lift[T](c: Seq[T]): Container[Seq, T] = SeqContainer(c)
-  override def source[T](container: Seq[T]): Seq[T] = container
-  override def map[T, V](container: Seq[T], f: T => V): Seq[V] = container.map(f)
-  override def filter[T](container: Seq[T], p: T => Boolean): Seq[T] = container.filter(p)
-
 }
 
 object Test extends App {
-
   def run[Container[_]](pipelineContext: PipelineContext[Container], source: Container[Person]): Unit = {
     import pipelineContext.PipelineDsl._
 
-    val program = for{
-      mikel <- pipelineContext.extract(source).mapping(_.name).filter(_ == "mikel")
+    val program = for {
+      mikel <- pipelineContext.extract(source).mapping(_.name).filter(_ == "mikel").mapping(_.toUpperCase())
       javier <- pipelineContext.extract(source).mapping(_.name).filter(_ == "javier")
-    } yield (mikel ++ javier)
+      res <- mikel ++ javier
+    } yield (res)
 
-    println(pipelineContext.eval(program).container)
+    println(program.load())
   }
 
   run(new SeqPipelineContext(), List(Person("mikel", "san vicente"), Person("javier", "san vicente")))
