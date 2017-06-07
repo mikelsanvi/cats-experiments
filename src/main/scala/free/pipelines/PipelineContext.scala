@@ -8,38 +8,56 @@ import cats.free.Free
 import cats.free.Free._
 import cats.{Id, ~>}
 import free.pipelines.ExtractionDsl._
+import org.apache.spark.sql.{Dataset, SparkSession}
+import scala.reflect.runtime.universe._
 
 /**
   * Created by mikelsanvicente on 4/27/17.
   */
-abstract class PipelineContext[Container[_]] {
+class PipelineContext[Container[_]](interpreter: Interpreter[Container]) {
 
-  def interpreter: Interpreter[Container]
-
-  def extract[T <: Product](dataset: Container[T]): Free[ExtractionDsl, Container[T]] =
+  def extract[T <: Product](dataset: Container[T]): Extraction[Container, T] =
     Free.liftF(Source[Container, T](dataset))
 
-  object PipelineDsl {
-    implicit class ExtractionProgramOps[T](extractionProgram: Free[ExtractionDsl, Container[T]]) {
-      def filter(f: T => Boolean): Free[ExtractionDsl, Container[T]] =
+  object dsl {
+
+    implicit class ExtractionProgramOps[T](extractionProgram: Extraction[Container, T]) {
+
+      def filter(f: T => Boolean): Extraction[Container, T] =
         for {
           extr <- extractionProgram
           res <- liftF(Filter(extr, f))
         } yield (res)
 
-      def mapping[V](f: T => V): Free[ExtractionDsl, Container[V]] =
+      def mapping[V <: Product : TypeTag](f: T => V): Extraction[Container, V] =
         for {
           extr <- extractionProgram
           res <- liftF(Mapping(extr, f))
         } yield (res)
 
-      def load(): Container[T] = interpreter.eval[T](extractionProgram)
+      def load(): Seq[T] = interpreter.load(extractionProgram)
+
+      def ++(other: Container[T]): Extraction[Container, T] =
+        for {
+          extr <- extractionProgram
+          res <- liftF(Union(extr, other))
+        } yield (res)
+
+      def --(other: Container[T]): Extraction[Container, T] =
+        for {
+          extr <- extractionProgram
+          res <- liftF(Substract(extr, other))
+        } yield (res)
     }
 
-    implicit class ContainerOps[A](container: Container[A]) {
-      def ++(other: Container[A]): Free[ExtractionDsl, Container[A]] = liftF(Union(container, other))
+    implicit class ContainerOps[T](container: Container[T]) {
+      def filter(f: T => Boolean): Extraction[Container, T] = liftF(Filter(container, f))
 
-      def --(other: Container[A]): Free[ExtractionDsl, Container[A]] = liftF(Substract(container, other))
+      def mapping[V <: Product : TypeTag](f: T => V): Extraction[Container, V] = liftF(Mapping(container, f))
+
+      def ++(other: Container[T]): Extraction[Container, T] = liftF(Union(container, other))
+
+      def --(other: Container[T]): Extraction[Container, T] = liftF(Substract(container, other))
     }
   }
 }
@@ -68,8 +86,10 @@ trait Interpreter[Container[_]] {
   private[this] def processSource[T](s: Source[Container, T]): Container[T] =
     source(s.dataset)
 
-  private[this] def processMapping[T, V](mapping: Mapping[Container, T, V]): Container[V] =
+  private[this] def processMapping[T, V <: Product](mapping: Mapping[Container, T, V]): Container[V] = {
+    implicit val vTypeTag = mapping.vTypeTag
     map(mapping.extraction, mapping.f)
+  }
 
   private[this] def processFilter[T](f: Filter[Container, T]): Container[T] =
     filter(f.extraction, f.predicate)
@@ -80,10 +100,13 @@ trait Interpreter[Container[_]] {
   private[this] def processSubstract[T](s: Substract[Container, T]): Container[T] =
     substract(s.extraction1, s.extraction2)
 
+  def load[T](program: Free[ExtractionDsl, Container[T]]): Seq[T] = load(eval(program))
+
+  def load[T](container: Container[T]): Seq[T]
 
   def source[T](container: Container[T]): Container[T]
 
-  def map[T, V](container: Container[T], f: T => V): Container[V]
+  def map[T, V <: Product : TypeTag](container: Container[T], f: T => V): Container[V]
 
   def filter[T](container: Container[T], p: T => Boolean): Container[T]
 
@@ -98,7 +121,9 @@ private object ExtractionDsl {
 
   case class Source[Container[_], T](dataset: Container[T]) extends ExtractionDsl[Container[T]]
 
-  case class Mapping[Container[_], T, V](extraction: Container[T], f: T => V) extends ExtractionDsl[Container[V]]
+  case class Mapping[Container[_], T, V <: Product : TypeTag](extraction: Container[T], f: T => V) extends ExtractionDsl[Container[V]] {
+    def vTypeTag: TypeTag[V] = typeTag[V]
+  }
 
   case class Filter[Container[_], T](extraction: Container[T], predicate: T => Boolean) extends ExtractionDsl[Container[T]]
 
@@ -108,36 +133,68 @@ private object ExtractionDsl {
 
 }
 
-class SeqPipelineContext extends PipelineContext[Seq] {
-  val interpreter: Interpreter[Seq] = new Interpreter[Seq] {
-    override def source[T](container: Seq[T]): Seq[T] = container
+class SeqInterpreter extends Interpreter[Seq] {
 
-    override def map[T, V](container: Seq[T], f: T => V): Seq[V] = container.map(f)
+  override def load[T](container: Seq[T]): Seq[T] = container
 
-    override def filter[T](container: Seq[T], p: T => Boolean): Seq[T] = container.filter(p)
+  override def source[T](container: Seq[T]): Seq[T] = container
 
-    def union[T](container1: Seq[T], container2: Seq[T]): Seq[T] = container1 ++ container2
+  override def map[T, V <: Product : TypeTag](container: Seq[T], f: T => V): Seq[V] = container.map(f)
 
-    def substract[T](container1: Seq[T], container2: Seq[T]): Seq[T] = container1 diff container2
+  override def filter[T](container: Seq[T], p: T => Boolean): Seq[T] = container.filter(p)
+
+  override def union[T](container1: Seq[T], container2: Seq[T]): Seq[T] = container1 ++ container2
+
+  override def substract[T](container1: Seq[T], container2: Seq[T]): Seq[T] = container1 diff container2
+}
+
+class SparkInterpreter(sparkSession: SparkSession) extends Interpreter[Dataset] {
+
+  private[this] lazy val sqlContext = sparkSession.sqlContext
+
+  override def load[T](container: Dataset[T]): Seq[T] = container.collect()
+
+  override def source[T](container: Dataset[T]): Dataset[T] = container
+
+  override def map[T, V <: Product : TypeTag](container: Dataset[T], f: T => V): Dataset[V] = {
+    import sqlContext.implicits._
+    container.map(f)
   }
+
+  override def filter[T](container: Dataset[T], p: T => Boolean): Dataset[T] = container.filter(p)
+
+  override def union[T](container1: Dataset[T], container2: Dataset[T]): Dataset[T] = container1 union container2
+
+  override def substract[T](container1: Dataset[T], container2: Dataset[T]): Dataset[T] = container1 except container2
 }
 
 object Test extends App {
   def run[Container[_]](pipelineContext: PipelineContext[Container], source: Container[Person]): Unit = {
-    import pipelineContext.PipelineDsl._
+    import pipelineContext.dsl._
 
     val program = for {
-      mikel <- pipelineContext.extract(source).mapping(_.name).filter(_ == "mikel").mapping(_.toUpperCase())
-      javier <- pipelineContext.extract(source).mapping(_.name).filter(_ == "javier")
-      res <- mikel ++ javier
+      mikel <- pipelineContext.extract(source).mapping(p => Name(p.name)).filter(_.name == "mikel")
+      mikelUpper <- mikel.mapping(n => n.copy(name = n.name.toUpperCase()))
+      javier <- pipelineContext.extract(source).mapping(p => Name(p.name)).filter(_.name == "javier")
+      res <- mikel ++ javier ++ mikelUpper
     } yield (res)
 
     println(program.load())
   }
 
-  run(new SeqPipelineContext(), List(Person("mikel", "san vicente"), Person("javier", "san vicente")))
+  val input = List(Person("mikel", "san vicente"), Person("javier", "san vicente"))
+
+  run(new PipelineContext(new SeqInterpreter()), input)
+  val sparkSession = SparkSession.builder().master("local[6]").config("spark.ui.enabled", false).getOrCreate()
+  import sparkSession.sqlContext.implicits._
+
+  run(new PipelineContext(
+    new SparkInterpreter(sparkSession)),
+    sparkSession.sqlContext.createDataset(input))
 
 
 }
 
 case class Person(name: String, surname: String)
+
+case class Name(name: String)
