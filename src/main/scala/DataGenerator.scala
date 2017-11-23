@@ -98,7 +98,7 @@ object DataGenerator {
     dataGenerator(rnd => gen.from(dataGen.value.random(rnd)))
 }
 
-object Test extends App {
+object TestRandom extends App {
   println(DataGenerator[MyData].randomSeq(10).mkString("\n"))
 }
 

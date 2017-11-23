@@ -13,8 +13,10 @@ trait CompressionEncoder[A] {
 
   def decompress(value: Compressed): Seq[A]
 }
+ // df.select($"name1", $"name2")
 
 object CompressionEncoder {
+
   type EncoderAux[T, Compr] = CompressionEncoder[T] {type Compressed = Compr}
 
   def apply[A](implicit enc: CompressionEncoder[A]): EncoderAux[A, enc.Compressed] = enc
@@ -117,7 +119,7 @@ object CompressionEncoder {
 
 }
 
-object Test extends App {
+object TestCompress extends App {
   val seq = (1 to 10000).map {
     i =>
       Type1("name", if (i % 3 == 0) Type2("test", i % 2) else Type2("test1", 1))

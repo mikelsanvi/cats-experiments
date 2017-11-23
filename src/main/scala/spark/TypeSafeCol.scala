@@ -45,6 +45,6 @@ object Test extends App {
   val ds2 = ds.whereColumn('field2)(_ === "value2")
   val ds3 = ds2.selectColumn('field1)
 
-  //println(ds3.as[Test2].collect.headOption)
+  // println(ds3.as[Test2].collect.headOption)
 
 }

@@ -13,7 +13,14 @@ object EqCat extends App {
         cat1.age === cat2.age &&
         cat1.color === cat2.color
   }
+  object BankAccount {
+    private var balance: Long = 0L
 
+    def deposit(amount: Long): Unit =
+      this.synchronized {
+        balance += amount
+      }
+  }
   val cat1 = Cat("felix", 3, "black")
   val cat2 = Cat("garfield", 3, "orange")
 

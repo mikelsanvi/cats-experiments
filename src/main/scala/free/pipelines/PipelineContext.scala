@@ -9,6 +9,7 @@ import cats.free.Free._
 import cats.{Id, ~>}
 import free.pipelines.ExtractionDsl._
 import org.apache.spark.sql.{Dataset, SparkSession}
+
 import scala.reflect.runtime.universe._
 
 /**
@@ -121,7 +122,8 @@ private object ExtractionDsl {
 
   case class Source[Container[_], T](dataset: Container[T]) extends ExtractionDsl[Container[T]]
 
-  case class Mapping[Container[_], T, V <: Product : TypeTag](extraction: Container[T], f: T => V) extends ExtractionDsl[Container[V]] {
+  case class Mapping[Container[_], T, V <: Product : TypeTag](extraction: Container[T], f: T => V)
+    extends ExtractionDsl[Container[V]] {
     def vTypeTag: TypeTag[V] = typeTag[V]
   }
 
@@ -151,15 +153,13 @@ class SeqInterpreter extends Interpreter[Seq] {
 class SparkInterpreter(sparkSession: SparkSession) extends Interpreter[Dataset] {
 
   private[this] lazy val sqlContext = sparkSession.sqlContext
+  import sqlContext.implicits._
 
   override def load[T](container: Dataset[T]): Seq[T] = container.collect()
 
   override def source[T](container: Dataset[T]): Dataset[T] = container
 
-  override def map[T, V <: Product : TypeTag](container: Dataset[T], f: T => V): Dataset[V] = {
-    import sqlContext.implicits._
-    container.map(f)
-  }
+  override def map[T, V <: Product : TypeTag](container: Dataset[T], f: T => V): Dataset[V] = container.map(f)
 
   override def filter[T](container: Dataset[T], p: T => Boolean): Dataset[T] = container.filter(p)
 
