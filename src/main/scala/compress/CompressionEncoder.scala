@@ -1,8 +1,7 @@
 package compress
 
 import shapeless._
-import shapeless.ops.hlist.IsHCons
-
+import shapeless.ops.hlist._
 /**
   * Created by mikelsanvicente on 4/28/17.
   */
@@ -13,7 +12,8 @@ trait CompressionEncoder[A] {
 
   def decompress(value: Compressed): Seq[A]
 }
- // df.select($"name1", $"name2")
+
+// df.select($"name1", $"name2")
 
 object CompressionEncoder {
 
