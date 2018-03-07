@@ -1,8 +1,3 @@
-/*
- * Copyright 2018, Radius Intelligence, Inc.
- * All Rights Reserved
- */
-
 package pipelines.config
 
 import java.time.LocalDate

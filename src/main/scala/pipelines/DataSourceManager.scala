@@ -1,11 +1,6 @@
-/*
- * Copyright 2018, Radius Intelligence, Inc.
- * All Rights Reserved
- */
 
 package pipelines
 
-// scalastyle:off underscore.import
 import java.time.LocalDate
 
 import pipelines.config.DatasourceConfig
@@ -13,7 +8,6 @@ import pipelines.utils.{DatedFolder, HadoopUtils}
 import org.apache.spark.sql._
 import org.apache.spark.sql.types.{StructField, StructType}
 import org.slf4j.LoggerFactory
-// scalastyle:off underscore.import
 
 /** The data source manager handles the physical location of the data.
   *

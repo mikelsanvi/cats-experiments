@@ -1,11 +1,6 @@
-/*
- * Copyright 2018, Radius Intelligence, Inc.
- * All Rights Reserved
- */
 
 package pipelines
 
-// scalastyle:off underscore.import
 import java.time.LocalDate
 
 import pipelines.config.DatasourceConfig
@@ -14,7 +9,6 @@ import org.apache.spark.sql._
 import org.slf4j.LoggerFactory
 
 import scala.util.{Failure, Success, Try}
-// scalastyle:on underscore.import
 
 /** The pipeline context allows to read and write spark datasets / dataframes / rdds in a safe way.
   *
