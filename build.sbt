@@ -3,14 +3,16 @@ name := "cats-experiments"
 
 version := "1.0.0-SNAPSHOT"
 
-scalaVersion := "2.11.11"
+scalaVersion := "2.11.12"
 
 lazy val sparkVersion = "2.1.0"
 
 lazy val scalaTestVersion = "2.2.5"
 
 libraryDependencies in ThisProject ++= Seq(
-  "org.typelevel" %% "cats" % "0.9.0",
+  "org.typelevel" %% "cats-core" % "1.1.0",
+  "org.typelevel" %% "cats-free" % "1.1.0",
+  "org.typelevel" %% "cats-effect" % "0.10.1",
   "com.chuusai" %% "shapeless" % "2.3.2",
   "org.scalameta" %% "scalameta" % "1.8.0" % Provided,
   "org.apache.spark" %% "spark-core" % sparkVersion withSources () withJavadoc (),
