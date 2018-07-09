@@ -2,6 +2,7 @@ package compress
 
 import shapeless._
 import shapeless.ops.hlist._
+
 /**
   * Created by mikelsanvicente on 4/28/17.
   */
@@ -116,21 +117,5 @@ object CompressionEncoder {
       }.reverse
     }
   }
-
-}
-
-object TestCompress extends App {
-  val seq = (1 to 10000).map {
-    i =>
-      Type1("name", if (i % 3 == 0) Type2("test", i % 2) else Type2("test1", 1))
-  }
-
-  val enc = CompressionEncoder[Type1]
-
-  val res = enc.compress(seq)
-
-  println(enc.decompress(res) == seq)
-
-  println(Typeable[enc.Compressed].describe)
 
 }
